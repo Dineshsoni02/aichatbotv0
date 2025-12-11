@@ -237,11 +237,13 @@ const LegalIntakeAssistant = () => {
                 {message.parts.map((part, i) => {
                   switch (part.type) {
                     case 'text':
+                      const isStreamingMessage = status === 'streaming' && message.role === 'assistant' && message.id === messages.at(-1)?.id;
                       return (
                         <Message key={`${message.id}-${i}`} from={message.role}>
                           <MessageContent>
                             <MessageResponse
-                              isAnimating={status === 'streaming' && message.role === 'assistant' && message.id === messages.at(-1)?.id}
+                              isAnimating={isStreamingMessage}
+                              mode={isStreamingMessage ? 'streaming' : 'static'}
                             >
                               {part.text}
                             </MessageResponse>

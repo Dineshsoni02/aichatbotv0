@@ -215,10 +215,15 @@ export async function POST(req: Request) {
             },
         });
 
-        // Return streaming response with metadata
+        // Return streaming response with metadata and proper headers
         return result.toUIMessageStreamResponse({
             sendSources: true,
             sendReasoning: true,
+            headers: {
+                'Transfer-Encoding': 'chunked',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache, no-transform',
+            },
         });
     } catch (error) {
         console.error('[CHAT API] Error:', error);
