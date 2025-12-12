@@ -72,7 +72,7 @@ const UI_STRINGS = {
   copyLabel: 'Kopieren',
   retryLabel: 'Erneut versuchen',
   uploadToast: 'Datei hochgeladen — wird dem Gespräch hinzugefügt',
-  welcomeMessage: 'Willkommen! Ich bin Ihr Rechtsfall-Assistent. Ich helfe Ihnen, Ihren Fall strukturiert aufzunehmen. Bitte beschreiben Sie mir Ihre Situation.',
+  welcomeMessage: 'Wir helfen Ihnen, Ihr Rechtsanliegen schnell und strukturiert aufzubereiten und alle wichtigen Informationen zu sammeln. Anschließend verbinden wir Sie mit einem passenden, spezialisierten Rechtsanwalt zu einem transparenten Fixpreis.\n\nSo reduzieren Sie Aufwand und Kosten, weil der Anwalt direkt mit einer vollständig vorbereiteten Fallübersicht starten kann.\n\nBitte beschreiben Sie Ihr Anliegen so genau wie möglich. Ich stelle Ihnen danach gezielte Fragen, um alles optimal für den Anwalt vorzubereiten.',
   disclaimer: 'Hinweis: Dies ist keine Rechtsberatung. Alle Informationen dienen nur der Fallaufnahme.',
 };
 
