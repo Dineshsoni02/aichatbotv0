@@ -12,6 +12,7 @@ const LoaderIcon = ({ size = 16 }: LoaderIconProps) => (
     style={{ color: "currentcolor" }}
     viewBox="0 0 16 16"
     width={size}
+    className="loader-spin"
   >
     <title>Loader</title>
     <g clipPath="url(#clip0_2393_1490)">
@@ -79,18 +80,44 @@ const LoaderIcon = ({ size = 16 }: LoaderIconProps) => (
   </svg>
 );
 
+// Typing dots indicator
+const TypingDots = () => (
+  <div className="flex items-center gap-1">
+    <span className="typing-dot w-2 h-2 rounded-full bg-primary/60" />
+    <span className="typing-dot w-2 h-2 rounded-full bg-primary/60" />
+    <span className="typing-dot w-2 h-2 rounded-full bg-primary/60" />
+  </div>
+);
+
 export type LoaderProps = HTMLAttributes<HTMLDivElement> & {
   size?: number;
+  variant?: "spinner" | "dots" | "both";
 };
 
-export const Loader = ({ className, size = 16, ...props }: LoaderProps) => (
+export const Loader = ({
+  className,
+  size = 16,
+  variant = "both",
+  ...props
+}: LoaderProps) => (
   <div
     className={cn(
-      "inline-flex animate-spin items-center justify-center",
+      "flex items-center gap-3 py-2 px-3 text-muted-foreground message-animate",
       className
     )}
     {...props}
   >
-    <LoaderIcon size={size} />
+    {(variant === "spinner" || variant === "both") && (
+      <LoaderIcon size={size} />
+    )}
+    {(variant === "dots" || variant === "both") && (
+      <TypingDots />
+    )}
+    {variant === "both" && (
+      <span className="text-xs text-muted-foreground/70 ml-1">
+        Denke nach...
+      </span>
+    )}
   </div>
 );
+
