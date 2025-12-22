@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createServerClient, updateConversationStatus } from '@/lib/supabase-server';
+import { createServerClient, updateConversationStatus, getCaseTypeIdByName } from '@/lib/supabase-server';
 import { validateCaseData, parseGermanDate, type CaseData } from '@/utils/validators';
 import { extractCaseData, createStructuredDescription, createCaseSummary } from '@/utils/caseExtractor';
 
@@ -64,13 +64,16 @@ export async function POST(req: Request) {
             deadlineDate = parseGermanDate(body.deadlineDate);
         }
 
+        // Look up case_type_id from case_types table
+        const caseTypeId = await getCaseTypeIdByName(body.caseTypeKey);
+
         // Create case record
         const { data: caseRecord, error: caseError } = await supabase
             .from('cases')
             .insert([{
                 conversation_id: body.conversationId,
                 person_id: conversation.person_id || null,
-                case_type_key: body.caseTypeKey || null,
+                case_type_id: caseTypeId || null,
                 title: body.title || 'Neuer Fall',
                 description_raw: descriptionRaw || null,
                 description_structured: descriptionStructured || null,
@@ -79,7 +82,7 @@ export async function POST(req: Request) {
                 deadline_date: deadlineDate,
                 urgency_level: body.urgencyLevel || 'medium',
                 ready_for_bidding: body.readyForBidding ?? false,
-                status: 'created',
+                status: 'intake',
             }])
             .select()
             .single();
@@ -111,7 +114,7 @@ export async function POST(req: Request) {
             case: {
                 id: caseRecord.id,
                 title: caseRecord.title,
-                case_type_key: caseRecord.case_type_key,
+                case_type_id: caseRecord.case_type_id,
                 urgency_level: caseRecord.urgency_level,
                 status: caseRecord.status,
             },

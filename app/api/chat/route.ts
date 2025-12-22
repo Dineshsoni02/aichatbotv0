@@ -8,6 +8,10 @@ import {
     saveDocument,
     getConversationDocuments,
     updateConversationStatus,
+    savePerson,
+    saveCase,
+    linkPersonToConversation,
+    getCaseTypeIdByName,
     type Message,
     type Document,
 } from '@/lib/supabase-server';
@@ -15,6 +19,8 @@ import {
     updateIntakeState,
     getIntakeSystemPrompt,
 } from '@/utils/intakeLogic';
+import { extractPersonData, isPersonDataComplete } from '@/utils/personExtractor';
+import { extractCaseData, createStructuredDescription, createCaseSummary } from '@/utils/caseExtractor';
 
 // Allow streaming responses up to 60 seconds
 export const maxDuration = 60;
@@ -57,10 +63,84 @@ interface ChatRequest {
     files?: FileUpload[];
 }
 
+/**
+ * Direct consent detection - checks if user message contains consent patterns
+ * This is a simpler alternative to the phase-based detection
+ */
+function detectUserConsent(messages: Message[]): boolean {
+    // Get the last few user messages to check for consent
+    const userMessages = messages.filter(m => m.role === 'user');
+    const recentUserMessages = userMessages.slice(-3); // Check last 3 user messages
+
+    // Consent patterns (German)
+    const consentPatterns = [
+        'ja, ich stimme zu',
+        'ja ich stimme zu',
+        'stimme zu',
+        'einverstanden',
+        'ja, dürfen sie',
+        'ja dürfen sie',
+        'ja, speichern',
+        'ja speichern',
+        'ja, weiterleiten',
+        'ja weiterleiten',
+        'ja, weitergeben',
+        'ja weitergeben',
+        'ich bin einverstanden',
+        'ich stimme zu',
+        'genehmigt',
+        'zustimmung erteilt',
+        'yes',
+        'i agree',
+        'i consent'
+    ];
+
+    // Negative patterns that override consent
+    const negativePatterns = [
+        'nein',
+        'nicht einverstanden',
+        'keine zustimmung',
+        'ablehne',
+        'nicht speichern'
+    ];
+
+    for (const msg of recentUserMessages) {
+        const text = msg.content.toLowerCase();
+
+        // Check for negative first
+        const hasNegative = negativePatterns.some(p => text.includes(p));
+        if (hasNegative) {
+            console.log('[CONSENT CHECK] Found negative pattern in:', text);
+            continue;
+        }
+
+        // Check for consent
+        const hasConsent = consentPatterns.some(p => text.includes(p));
+        if (hasConsent) {
+            console.log('[CONSENT CHECK] ✓ Found consent pattern in:', text);
+            return true;
+        }
+    }
+
+    console.log('[CONSENT CHECK] No consent pattern found in recent messages');
+    return false;
+}
+
+/**
+ * Check if user has provided person data (name + email minimum)
+ */
+function hasProvidedPersonData(messages: Message[]): boolean {
+    const personData = extractPersonData(messages);
+    const hasData = isPersonDataComplete(personData);
+    console.log('[PERSON DATA CHECK] Has complete data:', hasData, personData);
+    return hasData;
+}
+
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        console.log('[CHAT API] Received request body:', JSON.stringify(body, null, 2));
+        console.log('[CHAT API] ====== NEW REQUEST ======');
+        console.log('[CHAT API] Request body keys:', Object.keys(body));
 
         const {
             messages,
@@ -82,22 +162,19 @@ export async function POST(req: Request) {
         let currentConversationId = conversationId;
         if (currentConversationId) {
             console.log('[CHAT API] Checking if conversation exists:', currentConversationId);
-            // Check if this conversation exists in DB
             const existingConversation = await getConversation(currentConversationId);
-            console.log('[CHAT API] Existing conversation:', existingConversation);
+            console.log('[CHAT API] Existing conversation:', !!existingConversation);
 
             if (!existingConversation) {
                 console.log('[CHAT API] Creating new conversation with ID:', currentConversationId);
-                // Create new conversation with the client-provided ID
                 const newConversation = await createConversation(currentConversationId);
-                console.log('[CHAT API] Created conversation:', newConversation);
+                console.log('[CHAT API] Created conversation:', !!newConversation);
                 if (!newConversation) {
                     console.error('[CHAT API] Failed to create conversation with ID:', currentConversationId);
                 }
             }
         } else {
             console.log('[CHAT API] No conversationId provided, creating new one');
-            // No conversation ID provided, create a new one
             const conversation = await createConversation();
             console.log('[CHAT API] Created new conversation:', conversation);
             if (conversation) {
@@ -119,21 +196,21 @@ export async function POST(req: Request) {
 
         // Save the new user message to database
         const lastUserMessage = messages[messages.length - 1];
-        console.log('[CHAT API] Last user message:', lastUserMessage);
+        let lastUserContent = '';
 
         if (lastUserMessage && lastUserMessage.role === 'user' && currentConversationId) {
             // Extract text content from the message parts
-            const textContent = lastUserMessage.parts
+            lastUserContent = lastUserMessage.parts
                 ?.filter((part): part is { type: 'text'; text: string } => part.type === 'text')
                 .map(part => part.text)
                 .join('\n') || '';
 
-            console.log('[CHAT API] Extracted text content:', textContent);
+            console.log('[CHAT API] Last user message content:', lastUserContent.substring(0, 100));
 
-            if (textContent) {
+            if (lastUserContent) {
                 console.log('[CHAT API] Saving user message to DB...');
-                const savedMsg = await saveMessage(currentConversationId, 'user', textContent);
-                console.log('[CHAT API] Saved user message:', savedMsg);
+                const savedMsg = await saveMessage(currentConversationId, 'user', lastUserContent);
+                console.log('[CHAT API] Saved user message:', !!savedMsg);
             }
         }
 
@@ -141,7 +218,6 @@ export async function POST(req: Request) {
         if (files && files.length > 0 && currentConversationId) {
             console.log('[CHAT API] Processing', files.length, 'files');
             for (const file of files) {
-                // Save document metadata to database
                 const doc = await saveDocument({
                     conversation_id: currentConversationId,
                     file_name: file.fileName,
@@ -152,10 +228,9 @@ export async function POST(req: Request) {
                     extracted_text: undefined,
                     text_extraction_meta: { status: 'pending' },
                 });
-                console.log('[CHAT API] Saved document:', doc);
+                console.log('[CHAT API] Saved document:', !!doc);
 
                 if (doc) {
-                    // Save a message noting the file upload
                     await saveMessage(
                         currentConversationId,
                         'user',
@@ -175,6 +250,15 @@ export async function POST(req: Request) {
         // Update intake state based on conversation
         const intakeResult = updateIntakeState(dbMessages, dbDocuments);
         const intakePrompt = getIntakeSystemPrompt(intakeResult.state);
+
+        console.log('[CHAT API] Intake state:', {
+            phase: intakeResult.state.phase,
+            intakeComplete: intakeResult.state.intakeComplete,
+            consentGiven: intakeResult.state.consentGiven,
+            personDataRequested: intakeResult.state.personDataRequested,
+            shouldCreateCase: intakeResult.shouldCreateCase,
+            confidence: intakeResult.state.confidence
+        });
 
         // Build document context for the AI
         let documentContext = '';
@@ -200,18 +284,148 @@ export async function POST(req: Request) {
             messages: convertToModelMessages(messages),
             system: fullSystemPrompt,
             onFinish: async ({ text }) => {
-                console.log('[CHAT API] onFinish called, text length:', text?.length);
-                // Save assistant response to database
-                if (currentConversationId && text) {
-                    console.log('[CHAT API] Saving assistant message to DB...');
-                    const savedAssistant = await saveMessage(currentConversationId, 'assistant', text);
-                    console.log('[CHAT API] Saved assistant message:', savedAssistant);
+                console.log('[CHAT API] ====== onFinish CALLED ======');
+                console.log('[CHAT API] Response text length:', text?.length);
 
-                    // Update conversation status if intake is complete
-                    if (intakeResult.state.intakeComplete) {
-                        await updateConversationStatus(currentConversationId, 'intake_complete');
-                    }
+                if (!currentConversationId) {
+                    console.log('[CHAT API] No conversationId, skipping save');
+                    return;
                 }
+
+                if (!text) {
+                    console.log('[CHAT API] No text to save');
+                    return;
+                }
+
+                // Save assistant response to database
+                console.log('[CHAT API] Saving assistant message to DB...');
+                const savedAssistant = await saveMessage(currentConversationId, 'assistant', text);
+                console.log('[CHAT API] Saved assistant message:', !!savedAssistant);
+
+                // Re-fetch all messages to include the just-saved assistant message
+                const allMessages = await getConversationMessages(currentConversationId);
+                console.log('[CHAT API] Total messages after save:', allMessages.length);
+
+                // === DIRECT CONSENT CHECK ===
+                // Check if user has given consent in any recent message
+                const hasConsent = detectUserConsent(allMessages);
+                console.log('[CHAT API] Direct consent check result:', hasConsent);
+
+                // Check if we have person data
+                const hasPersonData = hasProvidedPersonData(allMessages);
+                console.log('[CHAT API] Has person data:', hasPersonData);
+
+                // Also check the phase-based logic
+                const updatedIntakeResult = updateIntakeState(allMessages, dbDocuments);
+                console.log('[CHAT API] Updated intake state:', {
+                    phase: updatedIntakeResult.state.phase,
+                    consentGiven: updatedIntakeResult.state.consentGiven,
+                    shouldCreateCase: updatedIntakeResult.shouldCreateCase,
+                    intakeComplete: updatedIntakeResult.state.intakeComplete
+                });
+
+                // Trigger save if EITHER direct consent OR phase-based consent is detected
+                const shouldSave = hasConsent ||
+                    (updatedIntakeResult.state.consentGiven && updatedIntakeResult.shouldCreateCase);
+
+                console.log('[CHAT API] Should save case:', shouldSave);
+
+                if (shouldSave && hasPersonData) {
+                    console.log('[CHAT API] ✓ CONDITIONS MET - Saving person and case data...');
+
+                    try {
+                        // 1. Extract person data from conversation
+                        const personData = extractPersonData(allMessages);
+                        console.log('[CHAT API] Extracted person data:', JSON.stringify(personData, null, 2));
+
+                        // 2. Save person to database
+                        let personId: string | undefined;
+                        if (isPersonDataComplete(personData)) {
+                            console.log('[CHAT API] Person data is complete, saving...');
+                            const person = await savePerson({
+                                full_name: personData.full_name,
+                                email: personData.email,
+                                phone_number: personData.phone_number,
+                                client_type: personData.client_type || 'private',
+                                company_name: personData.company_name,
+                                location: personData.location,
+                                preferred_contact_method: personData.preferred_contact_method || 'email',
+                                consent_share_with_lawyer: true,
+                                consent_to_contact: true,
+                            });
+
+                            if (person) {
+                                personId = person.id;
+                                console.log('[CHAT API] ✓ Person saved with ID:', person.id);
+
+                                // Link person to conversation
+                                await linkPersonToConversation(currentConversationId, person.id);
+                                console.log('[CHAT API] ✓ Person linked to conversation');
+                            } else {
+                                console.log('[CHAT API] ✗ Failed to save person');
+                            }
+                        } else {
+                            console.log('[CHAT API] Person data incomplete, skipping person creation');
+                        }
+
+                        // 3. Extract case data
+                        const extraction = extractCaseData(allMessages, dbDocuments);
+                        console.log('[CHAT API] Extracted case data:', {
+                            rechtsgebiet: extraction.data.rechtsgebiet,
+                            problemdefinition: extraction.data.problemdefinition?.substring(0, 50),
+                            confidence: extraction.confidence.overall
+                        });
+
+                        // 4. Look up case_type_id
+                        const caseTypeId = await getCaseTypeIdByName(extraction.data.rechtsgebiet);
+                        console.log('[CHAT API] Case type ID:', caseTypeId);
+
+                        // 5. Parse deadline date if available
+                        let deadlineDate: string | undefined;
+                        if (extraction.data.deadlines && extraction.data.deadlines.length > 0) {
+                            const firstDeadline = extraction.data.deadlines[0].datum;
+                            const dateMatch = firstDeadline.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+                            if (dateMatch) {
+                                deadlineDate = `${dateMatch[3]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+                            }
+                        }
+
+                        // 6. Save case to database
+                        console.log('[CHAT API] Saving case to database...');
+                        const caseRecord = await saveCase({
+                            conversation_id: currentConversationId,
+                            person_id: personId,
+                            case_type_id: caseTypeId || undefined,
+                            title: extraction.data.rechtsgebiet || 'Neuer Fall',
+                            description_raw: createCaseSummary(extraction.data),
+                            description_structured: createStructuredDescription(extraction),
+                            desired_outcome: extraction.data.ziele,
+                            urgency_level: extraction.data.dringlichkeit || 'medium',
+                            deadline_date: deadlineDate,
+                            status: 'intake',
+                            ready_for_bidding: false,
+                        });
+
+                        if (caseRecord) {
+                            console.log('[CHAT API] ✓ Case created with ID:', caseRecord.id);
+                            await updateConversationStatus(currentConversationId, 'case_created');
+                            console.log('[CHAT API] ✓ Conversation status updated to case_created');
+                        } else {
+                            console.log('[CHAT API] ✗ Failed to save case');
+                        }
+                    } catch (error) {
+                        console.error('[CHAT API] ✗ Error auto-saving case/person:', error);
+                    }
+                } else if (shouldSave && !hasPersonData) {
+                    console.log('[CHAT API] Consent given but no person data yet - waiting for user to provide details');
+                } else if (updatedIntakeResult.state.intakeComplete) {
+                    console.log('[CHAT API] Intake complete but no consent yet');
+                    await updateConversationStatus(currentConversationId, 'intake_complete');
+                } else {
+                    console.log('[CHAT API] Neither consent nor intake complete - continuing conversation');
+                }
+
+                console.log('[CHAT API] ====== onFinish COMPLETE ======');
             },
         });
 

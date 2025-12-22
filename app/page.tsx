@@ -72,7 +72,7 @@ import { DocumentBadge } from '@/components/ai-elements/document-badge';
 const models = [
   {
     name: 'GPT 4o',
-    value: 'openai/gpt-4o-mini',
+    value: 'openai/gpt-4.1-mini',
   },
 ];
 

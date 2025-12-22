@@ -70,7 +70,7 @@ export interface Case {
     created_at: string;
     conversation_id?: string;
     person_id?: string;
-    case_type_key?: string;
+    case_type_id?: number;  // FK to case_types table
     title?: string;
     description_raw?: string;
     description_structured?: Record<string, unknown>;
@@ -79,7 +79,7 @@ export interface Case {
     deadline_date?: string;
     urgency_level?: 'low' | 'medium' | 'high';
     ready_for_bidding?: boolean;
-    status?: string;
+    status?: 'intake' | 'ready_for_lawyer' | 'in_bidding' | 'assigned' | 'completed';
 }
 
 // Helper functions for common database operations
@@ -194,3 +194,81 @@ export async function updateConversationStatus(
     }
     return true;
 }
+
+/**
+ * Looks up case_type_id from the case_types table by name/key
+ */
+export async function getCaseTypeIdByName(name?: string): Promise<number | null> {
+    if (!name) return null;
+
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+        .from('case_types')
+        .select('id')
+        .ilike('name', `%${name}%`)
+        .limit(1)
+        .single();
+
+    if (error) {
+        console.error('Error looking up case type:', error);
+        return null;
+    }
+    return data?.id || null;
+}
+
+/**
+ * Saves a person record to the database
+ */
+export async function savePerson(personData: Partial<Person>): Promise<Person | null> {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+        .from('persons')
+        .insert([personData])
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error saving person:', error);
+        return null;
+    }
+    return data;
+}
+
+/**
+ * Saves a case record to the database
+ */
+export async function saveCase(caseData: Partial<Case>): Promise<Case | null> {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+        .from('cases')
+        .insert([caseData])
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error saving case:', error);
+        return null;
+    }
+    return data;
+}
+
+/**
+ * Links a person to a conversation
+ */
+export async function linkPersonToConversation(
+    conversationId: string,
+    personId: string
+): Promise<boolean> {
+    const supabase = createServerClient();
+    const { error } = await supabase
+        .from('conversations')
+        .update({ person_id: personId, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+
+    if (error) {
+        console.error('Error linking person to conversation:', error);
+        return false;
+    }
+    return true;
+}
+
