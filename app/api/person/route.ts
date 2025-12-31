@@ -2,6 +2,21 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase-server';
 import { validatePersonData, type PersonData } from '@/utils/validators';
 
+// CORS headers for cross-origin requests from Lovable frontend
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+};
+
+// Handle CORS preflight requests
+export async function OPTIONS() {
+    return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+    });
+}
+
 interface PersonRequest extends Partial<PersonData> {
     conversationId: string;
 }
@@ -15,7 +30,7 @@ export async function POST(req: Request) {
         if (!conversationId) {
             return NextResponse.json(
                 { error: 'Conversation ID erforderlich' },
-                { status: 400 }
+                { status: 400, headers: corsHeaders }
             );
         }
 
@@ -24,7 +39,7 @@ export async function POST(req: Request) {
         if (!validation.valid) {
             return NextResponse.json(
                 { error: 'Validierungsfehler', details: validation.errors },
-                { status: 400 }
+                { status: 400, headers: corsHeaders }
             );
         }
 
@@ -34,7 +49,7 @@ export async function POST(req: Request) {
         if (!personData.consent_share_with_lawyer) {
             return NextResponse.json(
                 { error: 'Einwilligung zur Weitergabe an Anwalt erforderlich' },
-                { status: 400 }
+                { status: 400, headers: corsHeaders }
             );
         }
 
@@ -60,7 +75,7 @@ export async function POST(req: Request) {
             console.error('Error creating person:', personError);
             return NextResponse.json(
                 { error: 'Fehler beim Speichern der Personendaten' },
-                { status: 500 }
+                { status: 500, headers: corsHeaders }
             );
         }
 
@@ -90,12 +105,12 @@ export async function POST(req: Request) {
                 client_type: person.client_type,
             },
             message: 'Personendaten erfolgreich gespeichert',
-        });
+        }, { headers: corsHeaders });
     } catch (error) {
         console.error('Person API error:', error);
         return NextResponse.json(
             { error: 'Interner Serverfehler' },
-            { status: 500 }
+            { status: 500, headers: corsHeaders }
         );
     }
 }

@@ -3,6 +3,21 @@ import { createServerClient, updateConversationStatus, getCaseTypeIdByName } fro
 import { validateCaseData, parseGermanDate, type CaseData } from '@/utils/validators';
 import { extractCaseData, createStructuredDescription, createCaseSummary } from '@/utils/caseExtractor';
 
+// CORS headers for cross-origin requests from Lovable frontend
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+};
+
+// Handle CORS preflight requests
+export async function OPTIONS() {
+    return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+    });
+}
+
 export async function POST(req: Request) {
     try {
         const body: Partial<CaseData> = await req.json();
@@ -12,7 +27,7 @@ export async function POST(req: Request) {
         if (!validation.valid) {
             return NextResponse.json(
                 { error: 'Validierungsfehler', details: validation.errors },
-                { status: 400 }
+                { status: 400, headers: corsHeaders }
             );
         }
 
@@ -28,7 +43,7 @@ export async function POST(req: Request) {
         if (convError || !conversation) {
             return NextResponse.json(
                 { error: 'Conversation nicht gefunden' },
-                { status: 404 }
+                { status: 404, headers: corsHeaders }
             );
         }
 
@@ -91,7 +106,7 @@ export async function POST(req: Request) {
             console.error('Error creating case:', caseError);
             return NextResponse.json(
                 { error: 'Fehler beim Erstellen des Falls' },
-                { status: 500 }
+                { status: 500, headers: corsHeaders }
             );
         }
 
@@ -119,12 +134,12 @@ export async function POST(req: Request) {
                 status: caseRecord.status,
             },
             message: 'Fall erfolgreich erstellt',
-        });
+        }, { headers: corsHeaders });
     } catch (error) {
         console.error('Case API error:', error);
         return NextResponse.json(
             { error: 'Interner Serverfehler' },
-            { status: 500 }
+            { status: 500, headers: corsHeaders }
         );
     }
 }
@@ -139,7 +154,7 @@ export async function GET(req: Request) {
         if (!caseId && !conversationId) {
             return NextResponse.json(
                 { error: 'Case ID oder Conversation ID erforderlich' },
-                { status: 400 }
+                { status: 400, headers: corsHeaders }
             );
         }
 
@@ -158,16 +173,16 @@ export async function GET(req: Request) {
         if (error || !caseRecord) {
             return NextResponse.json(
                 { error: 'Fall nicht gefunden' },
-                { status: 404 }
+                { status: 404, headers: corsHeaders }
             );
         }
 
-        return NextResponse.json({ case: caseRecord });
+        return NextResponse.json({ case: caseRecord }, { headers: corsHeaders });
     } catch (error) {
         console.error('Case GET error:', error);
         return NextResponse.json(
             { error: 'Interner Serverfehler' },
-            { status: 500 }
+            { status: 500, headers: corsHeaders }
         );
     }
 }

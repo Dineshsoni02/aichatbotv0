@@ -25,6 +25,21 @@ import { extractCaseData, createStructuredDescription, createCaseSummary } from 
 // Allow streaming responses up to 60 seconds
 export const maxDuration = 60;
 
+// CORS headers for cross-origin requests from Lovable frontend
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+};
+
+// Handle CORS preflight requests
+export async function OPTIONS() {
+    return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+    });
+}
+
 // System prompt as specified in requirements
 const SYSTEM_PROMPT = `Du bist ein deutscher KI-Rechtsassistent für die Erstaufnahme von Rechtsfällen.
 Du gibst KEINE Rechtsberatung.
@@ -434,6 +449,7 @@ export async function POST(req: Request) {
             sendSources: true,
             sendReasoning: true,
             headers: {
+                ...corsHeaders,
                 'Transfer-Encoding': 'chunked',
                 'Connection': 'keep-alive',
                 'Cache-Control': 'no-cache, no-transform',
@@ -443,7 +459,7 @@ export async function POST(req: Request) {
         console.error('[CHAT API] Error:', error);
         return new Response(
             JSON.stringify({ error: 'Internal server error' }),
-            { status: 500, headers: { 'Content-Type': 'application/json' } }
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }
 }
